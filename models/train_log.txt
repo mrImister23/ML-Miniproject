@@ -1,0 +1,30 @@
+Epoch  1/30  train loss 5.241 acc 0.016  test loss 5.079 top1 0.047 top5 0.170  (147s)  <- saved
+Epoch  2/30  train loss 4.698 acc 0.100  test loss 4.098 top1 0.172 top5 0.405  (144s)  <- saved
+Epoch  3/30  train loss 3.024 acc 0.410  test loss 3.110 top1 0.365 top5 0.697  (167s)  <- saved
+Epoch  4/30  train loss 1.974 acc 0.704  test loss 2.222 top1 0.617 top5 0.881  (193s)  <- saved
+Epoch  5/30  train loss 1.584 acc 0.832  test loss 2.241 top1 0.641 top5 0.875  (173s)  <- saved
+Epoch  6/30  train loss 1.406 acc 0.884  test loss 1.905 top1 0.726 top5 0.928  (142s)  <- saved
+Epoch  7/30  train loss 1.278 acc 0.925  test loss 1.755 top1 0.770 top5 0.944  (165s)  <- saved
+Epoch  8/30  train loss 1.225 acc 0.938  test loss 1.711 top1 0.780 top5 0.946  (174s)  <- saved
+Epoch  9/30  train loss 1.171 acc 0.956  test loss 1.666 top1 0.789 top5 0.944  (174s)  <- saved
+Epoch 10/30  train loss 1.144 acc 0.961  test loss 1.602 top1 0.815 top5 0.954  (140s)  <- saved
+Epoch 11/30  train loss 1.108 acc 0.969  test loss 1.575 top1 0.814 top5 0.958  (178s)
+Epoch 12/30  train loss 1.070 acc 0.979  test loss 1.572 top1 0.837 top5 0.960  (147s)  <- saved
+Epoch 13/30  train loss 1.057 acc 0.979  test loss 1.572 top1 0.827 top5 0.960  (133s)
+Epoch 14/30  train loss 1.034 acc 0.985  test loss 1.515 top1 0.849 top5 0.962  (133s)  <- saved
+Epoch 15/30  train loss 1.029 acc 0.985  test loss 1.511 top1 0.845 top5 0.960  (138s)
+Epoch 16/30  train loss 1.007 acc 0.987  test loss 1.497 top1 0.852 top5 0.964  (135s)  <- saved
+Epoch 17/30  train loss 1.005 acc 0.989  test loss 1.463 top1 0.860 top5 0.967  (135s)  <- saved
+Epoch 18/30  train loss 0.990 acc 0.989  test loss 1.482 top1 0.865 top5 0.968  (134s)  <- saved
+Epoch 19/30  train loss 0.974 acc 0.993  test loss 1.442 top1 0.869 top5 0.970  (137s)  <- saved
+Epoch 20/30  train loss 0.963 acc 0.993  test loss 1.434 top1 0.873 top5 0.972  (137s)  <- saved
+Epoch 21/30  train loss 0.957 acc 0.994  test loss 1.429 top1 0.878 top5 0.973  (135s)  <- saved
+Epoch 22/30  train loss 0.951 acc 0.994  test loss 1.441 top1 0.879 top5 0.974  (133s)  <- saved
+Epoch 23/30  train loss 0.945 acc 0.995  test loss 1.413 top1 0.883 top5 0.974  (135s)  <- saved
+Epoch 24/30  train loss 0.937 acc 0.997  test loss 1.409 top1 0.887 top5 0.975  (134s)  <- saved
+Epoch 25/30  train loss 0.933 acc 0.996  test loss 1.397 top1 0.888 top5 0.976  (135s)  <- saved
+Epoch 26/30  train loss 0.928 acc 0.996  test loss 1.403 top1 0.887 top5 0.976  (135s)
+Epoch 27/30  train loss 0.928 acc 0.997  test loss 1.410 top1 0.886 top5 0.976  (135s)
+Epoch 28/30  train loss 0.925 acc 0.997  test loss 1.408 top1 0.887 top5 0.975  (136s)
+Epoch 29/30  train loss 0.928 acc 0.996  test loss 1.407 top1 0.887 top5 0.976  (136s)
+Epoch 30/30  train loss 0.927 acc 0.997  test loss 1.409 top1 0.888 top5 0.976  (136s)  <- saved

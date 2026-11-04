@@ -1,0 +1,16 @@
+# Install CUDA PyTorch first (NVIDIA GPU):
+#   pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu128
+torch>=2.5
+torchvision>=0.20
+ultralytics>=8.3
+opencv-python>=4.9
+numpy
+pandas
+streamlit>=1.40
+streamlit-webrtc>=0.50
+av
+# training notebook
+datasets>=3.0
+matplotlib
+ipykernel
+lap>=0.5
