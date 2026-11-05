@@ -8,6 +8,8 @@
 | Siraphat Satthatham | 116710905062-1 |
 | Chanathip Saexung | 116710905081-1 |
 
+Presentation slides (Thai): [docs/AutoVision_AI_slides.pdf](docs/AutoVision_AI_slides.pdf)
+
 A Streamlit app that detects vehicles in a **webcam stream, a street-view/dashcam video or a photo**, recognises each car's **make, model and year**, estimates its **distance**, and shows a **spec HUD overlay**.
 
 ## Pipeline
