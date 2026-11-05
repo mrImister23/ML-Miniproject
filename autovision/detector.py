@@ -36,7 +36,7 @@ class VehicleDetector:
             classes=list(VEHICLE_CLASSES),
             tracker="bytetrack.yaml",
             device=self.device,
-            half=self.device != "cpu",
+            quantize=16 if self.device != "cpu" else None,  # fp16 on GPU
             verbose=False,
         )[0]
 

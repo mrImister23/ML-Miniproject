@@ -3,6 +3,7 @@
 Run with:  streamlit run app.py
 """
 
+import queue
 import tempfile
 import threading
 import time
@@ -42,6 +43,66 @@ def get_classifier(weights_mtime: float):
     return AutoVisionPipeline.load_classifier()
 
 
+def to_jpeg(frame_bgr: np.ndarray, max_width: int = 960, quality: int = 80) -> bytes:
+    """Small, fast JPEG for the browser. Streamlit's own conversion is a slow quality-100 encode
+    of the full frame (~3x bigger), which is what made playback stutter."""
+    if frame_bgr.shape[1] > max_width:
+        frame_bgr = cv2.resize(frame_bgr, (max_width, int(frame_bgr.shape[0] * max_width / frame_bgr.shape[1])),
+                               interpolation=cv2.INTER_AREA)
+    return cv2.imencode(".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, quality])[1].tobytes()
+
+
+def start_worker(cap: cv2.VideoCapture, pipe: AutoVisionPipeline, out_path: str | None, fps: float,
+                 max_width: int = 1280) -> queue.Queue:
+    """Decode, run the AI and encode frames in a background thread, so that work overlaps with
+    Streamlit sending the previous frame to the browser. Yields (jpeg, vehicles, fps) items, then
+    None at the end of the video (or the exception, if one happened)."""
+    results: queue.Queue = queue.Queue(maxsize=8)
+
+    to_save: queue.Queue = queue.Queue(maxsize=64)
+
+    def save():  # MP4 encoding is slow, so it gets its own thread too
+        writer = None
+        while (out := to_save.get()) is not None:
+            if writer is None:
+                writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (out.shape[1], out.shape[0]))
+            writer.write(out)
+        if writer is not None:
+            writer.release()
+
+    def run():
+        saver = threading.Thread(target=save, daemon=True) if out_path else None
+        if saver:
+            saver.start()
+        try:
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                if frame.shape[1] > max_width:  # keep large videos fast
+                    frame = cv2.resize(frame, (max_width, int(frame.shape[0] * max_width / frame.shape[1])))
+                out, vehicles = pipe.process_frame(frame)
+                if saver:
+                    to_save.put(out)
+                # Times out only if the run was stopped or the page rerun, i.e. nobody is reading
+                results.put((to_jpeg(out), vehicles, pipe.fps), timeout=10)
+            if saver:
+                to_save.put(None)
+                saver.join()  # finish the file before telling the app it can offer the download
+            results.put(None)
+        except queue.Full:
+            pass
+        except Exception as e:  # show it in the app instead of silently hanging
+            results.put(e)
+        finally:
+            cap.release()
+            if saver and saver.is_alive():
+                to_save.put(None)
+
+    threading.Thread(target=run, daemon=True).start()
+    return results
+
+
 def vehicles_table(vehicles) -> pd.DataFrame:
     rows = [
         {
@@ -65,7 +126,7 @@ def render_side_panel(placeholder, vehicles, fps):
         c2.metric("Vehicles", len(vehicles))
         c3.metric("Confident", sum(1 for v in vehicles if v.spec and not v.uncertain))
         if vehicles:
-            st.dataframe(vehicles_table(vehicles), hide_index=True, use_container_width=True)
+            st.dataframe(vehicles_table(vehicles), hide_index=True, width="stretch")
             recognised = [v for v in vehicles if v.spec]
             if recognised:
                 v = min(recognised, key=lambda r: r.distance_m)
@@ -174,33 +235,36 @@ elif source == "Video file":
         src_fps = cap.get(cv2.CAP_PROP_FPS) or 30
         frame_slot = left.empty()
         progress = left.progress(0.0, text="Processing...")
-        writer, out_path = None, None
-        if save_output:
-            out_path = str(Path(tempfile.gettempdir()) / f"autovision_{int(time.time())}.mp4")
+        out_path = str(Path(tempfile.gettempdir()) / f"autovision_{int(time.time())}.mp4") if save_output else None
 
+        results = start_worker(cap, pipe, out_path, src_fps)
         i = 0
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            # Keep large videos fast: process at most 1280 px wide
-            if frame.shape[1] > 1280:
-                frame = cv2.resize(frame, (1280, int(frame.shape[0] * 1280 / frame.shape[1])))
-            out, vehicles = pipe.process_frame(frame)
-            if save_output:
-                if writer is None:
-                    writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"mp4v"), src_fps, (out.shape[1], out.shape[0]))
-                writer.write(out)
-            frame_slot.image(out, channels="BGR", use_container_width=True)
-            if i % 10 == 0:
-                render_side_panel(side, vehicles, pipe.fps)
+        t_start = t_first = time.perf_counter()
+        next_panel = 0.0
+        while (item := results.get()) is not None:
+            if isinstance(item, Exception):
+                raise item
+            jpeg, vehicles, fps = item
+
+            # Play at the video's real speed (never faster), so the browser isn't flooded with frames
+            # it can't draw in time, which is what built up a backlog and froze the page.
+            ahead = t_start + i / src_fps - time.perf_counter()
+            if ahead > 0:
+                time.sleep(ahead)
+            elif ahead < -0.25:  # fell behind (e.g. GPU warm-up): re-sync instead of racing to catch up
+                t_start -= ahead
+            frame_slot.image(jpeg, width="stretch")
+
+            now = time.perf_counter()
+            if now >= next_panel:  # the table is heavy for the browser, so refresh it ~once a second
+                render_side_panel(side, vehicles, fps)
                 progress.progress(min(i / total, 1.0), text=f"Frame {i}/{total}")
+                next_panel = now + 1.0
             i += 1
 
-        cap.release()
-        progress.progress(1.0, text=f"Done: {i} frames, avg {pipe.fps:.1f} FPS")
-        if writer is not None:
-            writer.release()
+        elapsed = time.perf_counter() - t_first
+        progress.progress(1.0, text=f"Done: {i} frames in {elapsed:.0f} s ({i / max(elapsed, 1e-6):.1f} FPS)")
+        if out_path and Path(out_path).exists():
             with open(out_path, "rb") as f:
                 left.download_button("⬇ Download annotated video", f, file_name="autovision_output.mp4", mime="video/mp4")
     elif not video_path:
@@ -213,7 +277,7 @@ else:
         img = cv2.imdecode(np.frombuffer(upload.read(), np.uint8), cv2.IMREAD_COLOR)
         pipe = AutoVisionPipeline(classifier=classifier, config=config)
         out, vehicles = pipe.process_frame(img)
-        left.image(out, channels="BGR", use_container_width=True)
+        left.image(out, channels="BGR", width="stretch")
         render_side_panel(side, vehicles, pipe.fps)
     else:
         left.info("Upload an image to start.")

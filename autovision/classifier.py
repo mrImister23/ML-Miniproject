@@ -32,6 +32,7 @@ class CarClassifier:
         self.half = self.device == "cuda"
         if self.half:
             self.model.half()
+        self.predict_proba([np.zeros((IMG_SIZE, IMG_SIZE, 3), np.uint8)])  # warm up before the first video frame
 
     @staticmethod
     def _preprocess(crop_bgr: np.ndarray) -> np.ndarray:
@@ -48,5 +49,9 @@ class CarClassifier:
         batch = torch.from_numpy(np.stack([self._preprocess(c) for c in crops_bgr])).to(self.device)
         if self.half:
             batch = batch.half()
-        logits = self.model(batch).float()
+        # cuDNN 9 on this GPU stalls for 3-8 s the first time it sees a new batch size or new kind of
+        # input, which froze the video whenever the cars in view changed. PyTorch's own kernels never
+        # stall and are only a few ms slower for a model this small.
+        with torch.backends.cudnn.flags(enabled=False):
+            logits = self.model(batch).float()
         return torch.softmax(logits, dim=1).cpu().numpy()
