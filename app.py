@@ -19,6 +19,22 @@ from autovision import AutoVisionPipeline, PipelineConfig
 
 st.set_page_config(page_title="AutoVision AI", page_icon="🚗", layout="wide")
 
+# Clean, minimal look: quiet header, generous spacing, thin dividers, lighter headings
+st.markdown(
+    """
+    <style>
+    [data-testid="stHeader"] { background: transparent; }
+    [data-testid="stSidebar"] { border-right: 1px solid #E6D9BC; }
+    .block-container { padding-top: 2.5rem; max-width: 1400px; }
+    h1 { font-weight: 600; letter-spacing: -0.02em; }
+    h4 { font-weight: 600; }
+    [data-testid="stMetric"] { background: #FFFDF7; border: 1px solid #E6D9BC; border-radius: 8px; padding: 0.6rem 0.9rem; }
+    [data-testid="stMetricValue"] { font-weight: 500; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 @st.cache_resource(show_spinner="Loading make & model classifier...")
 def get_classifier(weights_mtime: float):
@@ -68,7 +84,7 @@ def render_side_panel(placeholder, vehicles, fps):
 
 
 # ---------------------------------------------------------------- sidebar
-st.sidebar.title("🚗 AutoVision AI")
+st.sidebar.title("AutoVision AI")
 st.sidebar.caption("Real-time vehicle make, model & spec recognition")
 
 source = st.sidebar.radio("Input source", ["Webcam", "Video file", "Image"])
@@ -89,8 +105,9 @@ config = PipelineConfig(
 weights = Path(__file__).parent / "models" / "car_classifier.pt"
 classifier = get_classifier(weights.stat().st_mtime if weights.exists() else 0.0)
 
-st.title("AutoVision AI: Real-Time Vehicle Make, Model and Spec Recognition")
-st.caption("YOLOv8 detection + ByteTrack tracking + MobileNetV3 fine-grained classification (Stanford Cars, 196 classes)")
+st.title("Vehicle Make, Model & Spec Recognition")
+st.caption("YOLOv8 detection · ByteTrack tracking · MobileNetV3 classification · Stanford Cars, 196 classes")
+st.divider()
 
 if classifier is None:
     get_classifier.clear()  # retry on the next rerun, e.g. once training has finished
