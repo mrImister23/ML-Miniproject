@@ -177,26 +177,38 @@ st.sidebar.caption("Real-time vehicle make, model & spec recognition")
 source = st.sidebar.radio("Input source", ["Webcam", "Video file", "Image"])
 
 st.sidebar.subheader("Settings")
+HAS_GPU = torch.cuda.is_available() and torch.cuda.device_count() > 0
+recognise = st.sidebar.toggle(
+    "Recognise make & model", value=HAS_GPU,
+    help="Off = only detect and track vehicles, about twice as fast. Without a GPU (e.g. on Streamlit Cloud) "
+         "it's off by default.")
+det_conf = st.sidebar.slider("Detection confidence", 0.1, 0.9, 0.35, 0.05)
+cls_conf, classify_every = 0.25, 5  # only used when make & model recognition is on
+if recognise:
+    cls_conf = st.sidebar.slider("Confident above", 0.05, 0.9, 0.25, 0.05,
+                                 help="Below this the most likely car is still shown, marked with '?' as a best guess.")
+    classify_every = st.sidebar.slider("Classify each car every N frames", 1, 15, 5,
+                                       help="Higher = faster FPS, slower label updates.")
 config = PipelineConfig(
-    det_conf=st.sidebar.slider("Detection confidence", 0.1, 0.9, 0.35, 0.05),
-    cls_conf=st.sidebar.slider("Confident above", 0.05, 0.9, 0.25, 0.05,
-                               help="Below this the most likely car is still shown, marked with '?' as a best guess."),
-    classify_every=st.sidebar.slider("Classify each car every N frames", 1, 15, 5,
-                                     help="Higher = faster FPS, slower label updates."),
+    det_conf=det_conf,
+    cls_conf=cls_conf,
+    classify_every=classify_every,
     hfov_deg=st.sidebar.slider("Camera field of view (°)", 40, 120, 70,
                                help="Used for distance estimation. Laptop webcams ≈ 60-70°, dashcams ≈ 100-120°."),
     show_distance=st.sidebar.toggle("Proximity overlay", True),
     show_specs=st.sidebar.toggle("Spec HUD panel", True),
+    # Detection only on a CPU: detect every 3rd frame (boxes reused in between) instead of every 2nd
+    detect_every=3 if not HAS_GPU and not recognise else None,
 )
 
 weights = Path(__file__).parent / "models" / "car_classifier.pt"
-classifier = get_classifier(weights.stat().st_mtime if weights.exists() else 0.0)
+classifier = get_classifier(weights.stat().st_mtime if weights.exists() else 0.0) if recognise else None
 
 st.title("Vehicle Make, Model & Spec Recognition")
 st.caption("YOLOv8 detection · ByteTrack tracking · MobileNetV3 classification · Stanford Cars, 196 classes")
 st.divider()
 
-if classifier is None:
+if recognise and classifier is None:
     get_classifier.clear()  # retry on the next rerun, e.g. once training has finished
     st.warning("Make/model classifier not found in `models/`. Run `train_classifier.ipynb` first. "
                "Running in detection-only mode for now.")
@@ -209,6 +221,7 @@ if source == "Webcam":
     if "webcam_pipe" not in st.session_state:
         st.session_state.webcam_pipe = AutoVisionPipeline(classifier=classifier)
         st.session_state.webcam_shared = {"vehicles": [], "lock": threading.Lock()}
+    st.session_state.webcam_pipe.classifier = classifier  # follow the make & model switch
     pipe = st.session_state.webcam_pipe
     pipe.config = config
     shared = st.session_state.webcam_shared
@@ -243,12 +256,11 @@ elif source == "Video file":
     upload = left.file_uploader("Upload a street-view / dashcam video", type=["mp4", "avi", "mov", "mkv"])
     samples = sorted(p for p in (Path(__file__).parent / "samples").glob("*") if p.suffix.lower() in (".mp4", ".avi", ".mov", ".mkv"))
     sample = left.selectbox("...or pick a sample from `samples/`", ["-"] + [p.name for p in samples]) if samples else "-"
-    has_gpu = torch.cuda.is_available() and torch.cuda.device_count() > 0
-    live = left.toggle("Live preview", value=has_gpu,
+    live = left.toggle("Live preview", value=HAS_GPU,
                        help="Show frames while they're processed. Without a GPU (e.g. on Streamlit Cloud) this "
                             "lags, so by default the video is processed first and then played smoothly.")
     save_output = live and left.checkbox("Save annotated video for download", value=False)
-    max_seconds = None if has_gpu else left.slider(
+    max_seconds = None if HAS_GPU else left.slider(
         "Seconds of video to process", 5, 120, 10, 5,
         help="Without a GPU each frame is slow (seconds per frame on a busy free server), so only the start of "
              "the video is processed.")
