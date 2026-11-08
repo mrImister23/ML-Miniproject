@@ -255,7 +255,8 @@ elif source == "Video file":
         progress = left.progress(0.0, text="Processing...")
         out_path = str(Path(tempfile.gettempdir()) / f"autovision_{int(time.time())}.mp4") if save_output else None
 
-        results = start_worker(cap, pipe, out_path, src_fps)
+        # On a CPU-only server, a smaller working frame saves resize, drawing and JPEG time
+        results = start_worker(cap, pipe, out_path, src_fps, max_width=960 if pipe.detector.device == "cpu" else 1280)
         i = 0
         t_start = t_first = time.perf_counter()
         next_panel = 0.0

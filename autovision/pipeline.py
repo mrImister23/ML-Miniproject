@@ -31,7 +31,11 @@ class PipelineConfig:
     hfov_deg: float = 70.0       # camera horizontal field of view
     show_distance: bool = True
     show_specs: bool = True
-    imgsz: int = 640
+    # None = pick for the hardware: full quality on a GPU; on a CPU-only server (e.g. Streamlit
+    # Community Cloud) a smaller YOLO input and detecting every other frame, reusing the boxes in
+    # between, which roughly doubles the frame rate at the cost of boxes lagging by one frame
+    imgsz: int | None = None
+    detect_every: int | None = None
 
 
 @dataclass
@@ -57,6 +61,12 @@ class AutoVisionPipeline:
                  config: PipelineConfig | None = None):
         self.config = config or PipelineConfig()
         self.detector = detector or VehicleDetector()
+        on_cpu = self.detector.device == "cpu"
+        if self.config.imgsz is None:
+            self.config.imgsz = 416 if on_cpu else 640
+        if self.config.detect_every is None:
+            self.config.detect_every = 2 if on_cpu else 1
+        self._detections = []
         self.classifier = classifier
         self.state = TrackState()
         self.frame_idx = 0
@@ -74,6 +84,7 @@ class AutoVisionPipeline:
         self.state.reset()
         self.frame_idx = 0
         self._last_t = None
+        self._detections = []
 
     def _crop(self, frame, box, pad=0.08):
         h, w = frame.shape[:2]
@@ -86,7 +97,9 @@ class AutoVisionPipeline:
         self.frame_idx += 1
         h, w = frame_bgr.shape[:2]
 
-        detections = self.detector.track(frame_bgr, conf=cfg.det_conf, imgsz=cfg.imgsz)
+        if cfg.detect_every <= 1 or self.frame_idx % cfg.detect_every == 1:
+            self._detections = self.detector.track(frame_bgr, conf=cfg.det_conf, imgsz=cfg.imgsz)
+        detections = self._detections
 
         # Batch-classify only the tracks that are due, to keep FPS high
         if self.classifier is not None:
