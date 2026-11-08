@@ -62,6 +62,7 @@ def start_worker(cap: cv2.VideoCapture, pipe: AutoVisionPipeline, out_path: str 
     Streamlit sending the previous frame to the browser. Yields (jpeg, vehicles, fps) items, then
     None at the end of the video (or the exception, if one happened)."""
     results: queue.Queue = queue.Queue(maxsize=8)
+    results.stats = {"decode": 0.0, "ai": 0.0, "jpeg": 0.0}  # total seconds per stage, shown at the end
 
     to_save: queue.Queue = queue.Queue(maxsize=64)
 
@@ -80,16 +81,24 @@ def start_worker(cap: cv2.VideoCapture, pipe: AutoVisionPipeline, out_path: str 
             saver.start()
         try:
             while True:
+                t0 = time.perf_counter()
                 ok, frame = cap.read()
                 if not ok:
                     break
                 if frame.shape[1] > max_width:  # keep large videos fast
                     frame = cv2.resize(frame, (max_width, int(frame.shape[0] * max_width / frame.shape[1])))
+                t1 = time.perf_counter()
                 out, vehicles = pipe.process_frame(frame)
+                t2 = time.perf_counter()
                 if saver:
                     to_save.put(out)
+                jpeg = to_jpeg(out, jpeg_width, jpeg_quality)
+                stats = results.stats
+                stats["decode"] += t1 - t0
+                stats["ai"] += t2 - t1
+                stats["jpeg"] += time.perf_counter() - t2
                 # Times out only if the run was stopped or the page rerun, i.e. nobody is reading
-                results.put((to_jpeg(out, jpeg_width, jpeg_quality), vehicles, pipe.fps), timeout=10)
+                results.put((jpeg, vehicles, pipe.fps), timeout=10)
             if saver:
                 to_save.put(None)
                 saver.join()  # finish the file before telling the app it can offer the download
@@ -264,15 +273,21 @@ elif source == "Video file":
         out_path = str(Path(tempfile.gettempdir()) / f"autovision_{int(time.time())}.mp4") if save_output else None
 
         if pipe.detector.device == "cpu":  # CPU-only server, e.g. Streamlit Community Cloud
-            # Smaller frames to process, and smaller JPEGs: every frame goes over the internet, and at
-            # 960 px a busy 4K street scene is ~65 KB a frame, which capped playback at ~10 FPS
+            # Smaller frames to process, and smaller JPEGs (every frame goes over the internet;
+            # a busy 4K street scene is ~65 KB a frame at 960 px, ~29 KB at 720 px)
             results = start_worker(cap, pipe, out_path, src_fps, max_width=960, jpeg_width=720, jpeg_quality=70)
         else:
             results = start_worker(cap, pipe, out_path, src_fps)
         i = 0
         t_start = t_first = time.perf_counter()
         next_panel = 0.0
-        while (item := results.get()) is not None:
+        waited = sent = 0.0
+        while True:
+            t0 = time.perf_counter()
+            item = results.get()
+            waited += time.perf_counter() - t0
+            if item is None:
+                break
             if isinstance(item, Exception):
                 raise item
             jpeg, vehicles, fps = item
@@ -284,7 +299,9 @@ elif source == "Video file":
                 time.sleep(ahead)
             elif ahead < -0.25:  # fell behind (e.g. GPU warm-up): re-sync instead of racing to catch up
                 t_start -= ahead
+            t0 = time.perf_counter()
             frame_slot.image(jpeg, width="stretch")
+            sent += time.perf_counter() - t0
 
             now = time.perf_counter()
             if now >= next_panel:  # the table is heavy for the browser, so refresh it ~once a second
@@ -295,6 +312,9 @@ elif source == "Video file":
 
         elapsed = time.perf_counter() - t_first
         progress.progress(1.0, text=f"Done: {i} frames in {elapsed:.0f} s ({i / max(elapsed, 1e-6):.1f} FPS)")
+        ms = {k: 1000 * v / max(i, 1) for k, v in results.stats.items()}
+        left.caption(f"Time per frame: decode {ms['decode']:.0f} ms · AI {ms['ai']:.0f} ms · JPEG {ms['jpeg']:.0f} ms "
+                     f"· waiting for the AI {1000 * waited / max(i, 1):.0f} ms · sending {1000 * sent / max(i, 1):.0f} ms")
         if out_path and Path(out_path).exists():
             with open(out_path, "rb") as f:
                 left.download_button("⬇ Download annotated video", f, file_name="autovision_output.mp4", mime="video/mp4")
