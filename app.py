@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import threading
 import time
+from fractions import Fraction
 from pathlib import Path
 
 import av
@@ -15,6 +16,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
+import torch
 from streamlit_webrtc import WebRtcMode, webrtc_streamer
 
 from autovision import AutoVisionPipeline, PipelineConfig
@@ -67,13 +69,21 @@ def start_worker(cap: cv2.VideoCapture, pipe: AutoVisionPipeline, out_path: str 
     to_save: queue.Queue = queue.Queue(maxsize=64)
 
     def save():  # MP4 encoding is slow, so it gets its own thread too
-        writer = None
+        container = stream = None
         while (out := to_save.get()) is not None:
-            if writer is None:
-                writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (out.shape[1], out.shape[0]))
-            writer.write(out)
-        if writer is not None:
-            writer.release()
+            if container is None:
+                # H.264 (not OpenCV's mp4v) so browsers can play the result; faststart lets playback
+                # begin before the whole file has downloaded
+                container = av.open(out_path, "w", options={"movflags": "faststart"})
+                stream = container.add_stream("libx264", rate=Fraction(fps).limit_denominator(1001))
+                stream.width, stream.height = out.shape[1] // 2 * 2, out.shape[0] // 2 * 2  # yuv420p needs even
+                stream.pix_fmt = "yuv420p"
+                stream.options = {"preset": "veryfast", "crf": "23"}
+            frame = av.VideoFrame.from_ndarray(np.ascontiguousarray(out[:stream.height, :stream.width]), format="bgr24")
+            container.mux(stream.encode(frame))
+        if container is not None:
+            container.mux(stream.encode(None))
+            container.close()
 
     def run():
         saver = threading.Thread(target=save, daemon=True) if out_path else None
@@ -230,7 +240,11 @@ elif source == "Video file":
     upload = left.file_uploader("Upload a street-view / dashcam video", type=["mp4", "avi", "mov", "mkv"])
     samples = sorted(p for p in (Path(__file__).parent / "samples").glob("*") if p.suffix.lower() in (".mp4", ".avi", ".mov", ".mkv"))
     sample = left.selectbox("...or pick a sample from `samples/`", ["-"] + [p.name for p in samples]) if samples else "-"
-    save_output = left.checkbox("Save annotated video for download", value=False)
+    has_gpu = torch.cuda.is_available() and torch.cuda.device_count() > 0
+    live = left.toggle("Live preview", value=has_gpu,
+                       help="Show frames while they're processed. Without a GPU (e.g. on Streamlit Cloud) this "
+                            "lags, so by default the video is processed first and then played smoothly.")
+    save_output = live and left.checkbox("Save annotated video for download", value=False)
 
     video_path = None
     if upload is not None:
@@ -270,7 +284,9 @@ elif source == "Video file":
         left.caption(f"{w}×{h}, {src_fps:.0f} FPS, {total} frames. The first frame takes a few seconds while the models warm up.{note}")
         frame_slot = left.empty()
         progress = left.progress(0.0, text="Processing...")
-        out_path = str(Path(tempfile.gettempdir()) / f"autovision_{int(time.time())}.mp4") if save_output else None
+        out_path = str(Path(tempfile.gettempdir()) / f"autovision_{int(time.time())}.mp4") if save_output or not live else None
+        if not live:
+            left.info("Processing the whole video first, then it plays smoothly below. The preview updates about once a second.")
 
         if pipe.detector.device == "cpu":  # CPU-only server, e.g. Streamlit Community Cloud
             # Smaller frames to process, and smaller JPEGs (every frame goes over the internet;
@@ -292,19 +308,22 @@ elif source == "Video file":
                 raise item
             jpeg, vehicles, fps = item
 
-            # Play at the video's real speed (never faster), so the browser isn't flooded with frames
-            # it can't draw in time, which is what built up a backlog and froze the page.
-            ahead = t_start + i / src_fps - time.perf_counter()
-            if ahead > 0:
-                time.sleep(ahead)
-            elif ahead < -0.25:  # fell behind (e.g. GPU warm-up): re-sync instead of racing to catch up
-                t_start -= ahead
-            t0 = time.perf_counter()
-            frame_slot.image(jpeg, width="stretch")
-            sent += time.perf_counter() - t0
+            if live:
+                # Play at the video's real speed (never faster), so the browser isn't flooded with frames
+                # it can't draw in time, which is what built up a backlog and froze the page.
+                ahead = t_start + i / src_fps - time.perf_counter()
+                if ahead > 0:
+                    time.sleep(ahead)
+                elif ahead < -0.25:  # fell behind (e.g. GPU warm-up): re-sync instead of racing to catch up
+                    t_start -= ahead
+                t0 = time.perf_counter()
+                frame_slot.image(jpeg, width="stretch")
+                sent += time.perf_counter() - t0
 
             now = time.perf_counter()
             if now >= next_panel:  # the table is heavy for the browser, so refresh it ~once a second
+                if not live:
+                    frame_slot.image(jpeg, width="stretch")
                 render_side_panel(side, vehicles, fps)
                 progress.progress(min(i / total, 1.0), text=f"Frame {i}/{total}")
                 next_panel = now + 1.0
@@ -315,6 +334,8 @@ elif source == "Video file":
         ms = {k: 1000 * v / max(i, 1) for k, v in results.stats.items()}
         left.caption(f"Time per frame: decode {ms['decode']:.0f} ms · AI {ms['ai']:.0f} ms · JPEG {ms['jpeg']:.0f} ms "
                      f"· waiting for the AI {1000 * waited / max(i, 1):.0f} ms · sending {1000 * sent / max(i, 1):.0f} ms")
+        if not live and out_path and Path(out_path).exists():
+            frame_slot.video(out_path, autoplay=True, muted=True)
         if out_path and Path(out_path).exists():
             with open(out_path, "rb") as f:
                 left.download_button("⬇ Download annotated video", f, file_name="autovision_output.mp4", mime="video/mp4")
