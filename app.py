@@ -59,7 +59,8 @@ def to_jpeg(frame_bgr: np.ndarray, max_width: int = 960, quality: int = 80) -> b
 
 
 def start_worker(cap: cv2.VideoCapture, pipe: AutoVisionPipeline, out_path: str | None, fps: float,
-                 max_width: int = 1280, jpeg_width: int = 960, jpeg_quality: int = 80) -> queue.Queue:
+                 max_width: int = 1280, jpeg_width: int = 960, jpeg_quality: int = 80,
+                 max_frames: int | None = None) -> queue.Queue:
     """Decode, run the AI and encode frames in a background thread, so that work overlaps with
     Streamlit sending the previous frame to the browser. Yields (jpeg, vehicles, fps) items, then
     None at the end of the video (or the exception, if one happened)."""
@@ -90,7 +91,9 @@ def start_worker(cap: cv2.VideoCapture, pipe: AutoVisionPipeline, out_path: str 
         if saver:
             saver.start()
         try:
-            while True:
+            n = 0
+            while max_frames is None or n < max_frames:
+                n += 1
                 t0 = time.perf_counter()
                 ok, frame = cap.read()
                 if not ok:
@@ -245,6 +248,10 @@ elif source == "Video file":
                        help="Show frames while they're processed. Without a GPU (e.g. on Streamlit Cloud) this "
                             "lags, so by default the video is processed first and then played smoothly.")
     save_output = live and left.checkbox("Save annotated video for download", value=False)
+    max_seconds = None if has_gpu else left.slider(
+        "Seconds of video to process", 5, 120, 10, 5,
+        help="Without a GPU each frame is slow (seconds per frame on a busy free server), so only the start of "
+             "the video is processed.")
 
     video_path = None
     if upload is not None:
@@ -275,6 +282,7 @@ elif source == "Video file":
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
         src_fps = cap.get(cv2.CAP_PROP_FPS) or 30
+        max_frames = round(max_seconds * src_fps) if max_seconds else None
         h, w = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         note = ""
         if pipe.detector.device == "cpu":
@@ -286,14 +294,18 @@ elif source == "Video file":
         progress = left.progress(0.0, text="Processing...")
         out_path = str(Path(tempfile.gettempdir()) / f"autovision_{int(time.time())}.mp4") if save_output or not live else None
         if not live:
-            left.info("Processing the whole video first, then it plays smoothly below. The preview updates about once a second.")
+            part = f"the first {max_seconds} s of the video" if max_frames and max_frames < total else "the whole video"
+            left.info(f"Processing {part}, then it plays smoothly below. The preview updates about once a second.")
 
         if pipe.detector.device == "cpu":  # CPU-only server, e.g. Streamlit Community Cloud
             # Smaller frames to process, and smaller JPEGs (every frame goes over the internet;
             # a busy 4K street scene is ~65 KB a frame at 960 px, ~29 KB at 720 px)
-            results = start_worker(cap, pipe, out_path, src_fps, max_width=960, jpeg_width=720, jpeg_quality=70)
+            results = start_worker(cap, pipe, out_path, src_fps, max_width=960, jpeg_width=720, jpeg_quality=70,
+                                   max_frames=max_frames)
         else:
             results = start_worker(cap, pipe, out_path, src_fps)
+        if max_frames:
+            total = min(total, max_frames)
         i = 0
         t_start = t_first = time.perf_counter()
         next_panel = 0.0
