@@ -6,3 +6,4 @@ samples/*_annotated.*
 *.mp4
 SESSION_SUMMARY.md
 .claude/
+.playwright-mcp/

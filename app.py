@@ -4,6 +4,7 @@ Run with:  streamlit run app.py
 """
 
 import queue
+import shutil
 import tempfile
 import threading
 import time
@@ -122,7 +123,7 @@ def vehicles_table(vehicles) -> pd.DataFrame:
 def render_side_panel(placeholder, vehicles, fps):
     with placeholder.container():
         c1, c2, c3 = st.columns(3)
-        c1.metric("FPS", f"{fps:.1f}")
+        c1.metric("FPS", f"{fps:.0f}")
         c2.metric("Vehicles", len(vehicles))
         c3.metric("Confident", sum(1 for v in vehicles if v.spec and not v.uncertain))
         if vehicles:
@@ -221,18 +222,35 @@ elif source == "Video file":
 
     video_path = None
     if upload is not None:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=Path(upload.name).suffix)
-        tmp.write(upload.read())
-        tmp.close()
-        video_path = tmp.name
+        # Save each upload to disk once, in chunks. Re-reading the whole file into memory on every
+        # rerun made big videos hang the app on Streamlit Cloud (about 1 GB of RAM there).
+        saved = st.session_state.get("uploaded_video")
+        if saved and saved[0] == upload.file_id and Path(saved[1]).exists():
+            video_path = saved[1]
+        else:
+            if saved:
+                Path(saved[1]).unlink(missing_ok=True)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(upload.name).suffix) as tmp:
+                upload.seek(0)
+                shutil.copyfileobj(upload, tmp, 1024 * 1024)
+            video_path = tmp.name
+            st.session_state.uploaded_video = (upload.file_id, video_path)
     elif sample != "-":
         video_path = str(Path(__file__).parent / "samples" / sample)
 
     if video_path and left.button("▶ Run AutoVision", type="primary"):
         pipe = AutoVisionPipeline(classifier=classifier, config=config)
         cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened() or not cap.read()[0]:
+            cap.release()
+            left.error("Can't read this video. Phone videos are often HEVC/H.265, which OpenCV can't decode "
+                       "here. Convert it to H.264 MP4 (e.g. with HandBrake or an online converter) and try again.")
+            st.stop()
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
         src_fps = cap.get(cv2.CAP_PROP_FPS) or 30
+        h, w = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        left.caption(f"{w}×{h}, {src_fps:.0f} FPS, {total} frames. The first frame takes a few seconds while the models warm up.")
         frame_slot = left.empty()
         progress = left.progress(0.0, text="Processing...")
         out_path = str(Path(tempfile.gettempdir()) / f"autovision_{int(time.time())}.mp4") if save_output else None
