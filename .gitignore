@@ -7,3 +7,7 @@ samples/*_annotated.*
 SESSION_SUMMARY.md
 .claude/
 .playwright-mcp/
+
+# Only for the benchmark (tools/quantize_models.py); the app uses yolov8n_int8.onnx and car_classifier.onnx
+/models/yolov8n.onnx
+/models/car_classifier_int8.onnx

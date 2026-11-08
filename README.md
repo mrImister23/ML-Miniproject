@@ -87,6 +87,32 @@ Sidebar sliders control detection confidence, the "Confident above" threshold (b
 
 Most errors are between near-identical vehicles, e.g. Dodge Sprinter vs Mercedes-Benz Sprinter, or the same model from a different year (Bentley Continental GT 2007 vs 2012).
 
+## Quantization: FP32 vs FP16 vs INT8
+
+`python tools/quantize_models.py` exports both models to ONNX, quantizes them to INT8 (ONNX Runtime
+static post-training quantization, per-channel weights, calibrated on street frames and Stanford Cars
+training images) and benchmarks them. Results in `models/quantization_results.json`. CPU numbers use
+2 threads, like a Streamlit Cloud server; accuracy is on 2,000 Stanford Cars test images.
+
+| Model | Format | Time / image | Size | Accuracy |
+|---|---|---|---|---|
+| Detector (YOLOv8n, 416 px, CPU) | PyTorch FP32 | 57.4 ms | 6.5 MB* | reference |
+| | ONNX FP32 | 23.0 ms | 12.8 MB | 96% of FP32's boxes found |
+| | **ONNX INT8** | **12.9 ms** | **3.6 MB** | 90% of FP32's boxes found, 95% precision |
+| Classifier (MobileNetV3, CPU) | PyTorch FP32 | 13.7 ms | 18.0 MB | 87.4% Top-1 |
+| | PyTorch FP16 | 469.8 ms | | (CPUs have no fast FP16) |
+| | **ONNX FP32** | **3.7 ms** | 17.8 MB | 87.4% Top-1 |
+| | ONNX INT8 | 3.9 ms | 5.0 MB | 86.4% Top-1 |
+| Classifier (GPU, RTX 3050) | FP32 / FP16 | 8.3 / 8.0 ms | | 87.4% / 87.5% Top-1 |
+| Detector (GPU, 640 px) | FP32 / FP16 | 9.1 / 9.6 ms | | |
+
+\* Ultralytics stores `yolov8n.pt` in FP16 on disk; it runs as FP32 on a CPU.
+
+What the app uses: on a GPU, PyTorch FP16 (FP16 and FP32 run at the same speed for models this
+small). Without a GPU, the INT8 detector and the ONNX FP32 classifier, since INT8 made the
+classifier no faster but lost 1% accuracy. End to end on 2 CPU cores that halves the time per frame
+(18.7 → 9.3 ms).
+
 ## Evaluation metrics
 
 | Metric | Where |

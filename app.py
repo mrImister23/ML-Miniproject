@@ -301,6 +301,7 @@ elif source == "Video file":
             reported, usable, quota = CPU_INFO
             note = f" No GPU here: running on {usable} CPU core(s) (server reports {reported}" + (
                 f", limit {quota:g})." if quota else ").")
+        note += f" Detector: {pipe.detector.backend}" + (f", classifier: {classifier.backend}." if classifier else ".")
         left.caption(f"{w}×{h}, {src_fps:.0f} FPS, {total} frames. The first frame takes a few seconds while the models warm up.{note}")
         frame_slot = left.empty()
         progress = left.progress(0.0, text="Processing...")

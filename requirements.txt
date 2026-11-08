@@ -12,3 +12,4 @@ streamlit>=1.40
 streamlit-webrtc>=0.50
 av
 lap>=0.5
+onnxruntime>=1.20   # INT8 models on CPU (tools/quantize_models.py)

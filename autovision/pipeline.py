@@ -77,7 +77,11 @@ class AutoVisionPipeline:
     def load_classifier(cls, weights=DEFAULT_WEIGHTS, names=DEFAULT_NAMES) -> CarClassifier | None:
         if not Path(weights).exists() or not Path(names).exists():
             return None
-        return CarClassifier(weights, names)
+        # On CPU, use the ONNX export if it has been made (tools/quantize_models.py): ONNX Runtime FP32 is
+        # ~3.7x faster than PyTorch there with identical accuracy; INT8 was no faster and lost 1% Top-1
+        import torch
+        return CarClassifier(weights, names, onnx_path=Path(weights).with_name("car_classifier.onnx"),
+                             threads=torch.get_num_threads())
 
     def reset(self):
         self.detector.reset()

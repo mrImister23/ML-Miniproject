@@ -22,9 +22,21 @@ def build_model(num_classes: int) -> nn.Module:
 
 
 class CarClassifier:
-    def __init__(self, weights_path: str | Path, names_path: str | Path, device: str | None = None):
+    def __init__(self, weights_path: str | Path, names_path: str | Path, device: str | None = None,
+                 onnx_path: str | Path | None = None, threads: int | None = None):
         self.device = device or ("cuda" if torch.cuda.is_available() and torch.cuda.device_count() else "cpu")
         self.class_names: list[str] = json.loads(Path(names_path).read_text(encoding="utf-8"))
+        self.session = None
+        if self.device == "cpu" and onnx_path and Path(onnx_path).exists():
+            # ONNX model on CPU (see tools/quantize_models.py): much faster than PyTorch there
+            import onnxruntime as ort
+            so = ort.SessionOptions()
+            if threads:
+                so.intra_op_num_threads = threads
+            self.session = ort.InferenceSession(str(onnx_path), so, providers=["CPUExecutionProvider"])
+            self.backend = "ONNX Runtime " + ("INT8" if "int8" in Path(onnx_path).name else "FP32")
+            return
+        self.backend = "PyTorch FP16" if self.device == "cuda" else "PyTorch FP32"
         self.model = build_model(len(self.class_names))
         state = torch.load(weights_path, map_location="cpu", weights_only=True)
         self.model.load_state_dict(state)
@@ -46,6 +58,9 @@ class CarClassifier:
         """Return softmax probabilities, shape (len(crops), num_classes)."""
         if not crops_bgr:
             return np.empty((0, len(self.class_names)), dtype=np.float32)
+        if self.session is not None:
+            logits = self.session.run(None, {"images": np.stack([self._preprocess(c) for c in crops_bgr])})[0]
+            return torch.softmax(torch.from_numpy(logits), dim=1).numpy()
         batch = torch.from_numpy(np.stack([self._preprocess(c) for c in crops_bgr])).to(self.device)
         if self.half:
             batch = batch.half()
