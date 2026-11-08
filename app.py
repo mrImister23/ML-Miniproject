@@ -18,6 +18,9 @@ import streamlit as st
 from streamlit_webrtc import WebRtcMode, webrtc_streamer
 
 from autovision import AutoVisionPipeline, PipelineConfig
+from autovision.cpu import limit_cpu_threads
+
+CPU_INFO = limit_cpu_threads()  # before any model runs
 
 st.set_page_config(page_title="AutoVision AI", page_icon="🚗", layout="wide")
 
@@ -250,7 +253,12 @@ elif source == "Video file":
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
         src_fps = cap.get(cv2.CAP_PROP_FPS) or 30
         h, w = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        left.caption(f"{w}×{h}, {src_fps:.0f} FPS, {total} frames. The first frame takes a few seconds while the models warm up.")
+        note = ""
+        if pipe.detector.device == "cpu":
+            reported, usable, quota = CPU_INFO
+            note = f" No GPU here: running on {usable} CPU core(s) (server reports {reported}" + (
+                f", limit {quota:g})." if quota else ").")
+        left.caption(f"{w}×{h}, {src_fps:.0f} FPS, {total} frames. The first frame takes a few seconds while the models warm up.{note}")
         frame_slot = left.empty()
         progress = left.progress(0.0, text="Processing...")
         out_path = str(Path(tempfile.gettempdir()) / f"autovision_{int(time.time())}.mp4") if save_output else None
