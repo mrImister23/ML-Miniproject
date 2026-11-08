@@ -54,7 +54,7 @@ def to_jpeg(frame_bgr: np.ndarray, max_width: int = 960, quality: int = 80) -> b
 
 
 def start_worker(cap: cv2.VideoCapture, pipe: AutoVisionPipeline, out_path: str | None, fps: float,
-                 max_width: int = 1280) -> queue.Queue:
+                 max_width: int = 1280, jpeg_width: int = 960, jpeg_quality: int = 80) -> queue.Queue:
     """Decode, run the AI and encode frames in a background thread, so that work overlaps with
     Streamlit sending the previous frame to the browser. Yields (jpeg, vehicles, fps) items, then
     None at the end of the video (or the exception, if one happened)."""
@@ -86,7 +86,7 @@ def start_worker(cap: cv2.VideoCapture, pipe: AutoVisionPipeline, out_path: str 
                 if saver:
                     to_save.put(out)
                 # Times out only if the run was stopped or the page rerun, i.e. nobody is reading
-                results.put((to_jpeg(out), vehicles, pipe.fps), timeout=10)
+                results.put((to_jpeg(out, jpeg_width, jpeg_quality), vehicles, pipe.fps), timeout=10)
             if saver:
                 to_save.put(None)
                 saver.join()  # finish the file before telling the app it can offer the download
@@ -255,8 +255,12 @@ elif source == "Video file":
         progress = left.progress(0.0, text="Processing...")
         out_path = str(Path(tempfile.gettempdir()) / f"autovision_{int(time.time())}.mp4") if save_output else None
 
-        # On a CPU-only server, a smaller working frame saves resize, drawing and JPEG time
-        results = start_worker(cap, pipe, out_path, src_fps, max_width=960 if pipe.detector.device == "cpu" else 1280)
+        if pipe.detector.device == "cpu":  # CPU-only server, e.g. Streamlit Community Cloud
+            # Smaller frames to process, and smaller JPEGs: every frame goes over the internet, and at
+            # 960 px a busy 4K street scene is ~65 KB a frame, which capped playback at ~10 FPS
+            results = start_worker(cap, pipe, out_path, src_fps, max_width=960, jpeg_width=720, jpeg_quality=70)
+        else:
+            results = start_worker(cap, pipe, out_path, src_fps)
         i = 0
         t_start = t_first = time.perf_counter()
         next_panel = 0.0

@@ -133,8 +133,11 @@ class AutoVisionPipeline:
 
         now = time.perf_counter()
         if self._last_t is not None:
-            inst = 1.0 / max(now - self._last_t, 1e-6)
-            self.fps = inst if self.fps == 0 else 0.9 * self.fps + 0.1 * inst
+            # Smooth the frame time, not the rate: averaging rates lets bursts of fast frames
+            # (e.g. after a short wait) show a much higher FPS than the video really gets
+            dt = max(now - self._last_t, 1e-6)
+            self._dt = dt if self.fps == 0 else 0.9 * self._dt + 0.1 * dt
+            self.fps = 1.0 / self._dt
         self._last_t = now
 
         out = frame_bgr.copy()
