@@ -45,6 +45,10 @@ def limit_cpu_threads() -> tuple[int, int, float | None]:
     import torch
 
     reported, usable, quota = usable_cpus()
+    if not torch.cuda.is_available():
+        # Shared cloud hosts report many cores but hand out ~2 in practice; one thread per
+        # reported core only makes the threads fight. AUTOVISION_THREADS overrides.
+        usable = int(os.environ.get("AUTOVISION_THREADS", min(usable, 2)))
     if usable < reported:
         torch.set_num_threads(usable)
         cv2.setNumThreads(usable)
