@@ -51,8 +51,14 @@ models/                 trained weights + class names
 python -m venv .venv
 .venv\Scripts\activate
 pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu128
-pip install -r requirements.txt
+pip install -r requirements-train.txt   # app + training notebook
 ```
+
+To run only the app, `requirements.txt` is enough.
+
+## Deploy on Streamlit Community Cloud
+
+Point the app at `app.py`. `requirements.txt` installs CPU-only PyTorch and `packages.txt` adds the Linux system libraries OpenCV needs (`libgl1`, `libglib2.0-0`). The cloud has no GPU, so expect a few FPS on video; webcam mode may also need a TURN server to connect from some networks.
 
 ## 1. Train the classifier
 

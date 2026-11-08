@@ -1,0 +1,5 @@
+# Extra packages for train_classifier.ipynb (not needed to run the app)
+-r requirements.txt
+datasets>=3.0
+matplotlib
+ipykernel

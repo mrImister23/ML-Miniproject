@@ -1,5 +1,7 @@
-# Install CUDA PyTorch first (NVIDIA GPU):
+# Streamlit Community Cloud has no GPU, so it gets the small CPU build of PyTorch from this index.
+# On your own NVIDIA PC, install the CUDA build first (the line below then won't replace it):
 #   pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cu128
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch>=2.5
 torchvision>=0.20
 ultralytics>=8.3
@@ -9,8 +11,4 @@ pandas
 streamlit>=1.40
 streamlit-webrtc>=0.50
 av
-# training notebook
-datasets>=3.0
-matplotlib
-ipykernel
 lap>=0.5

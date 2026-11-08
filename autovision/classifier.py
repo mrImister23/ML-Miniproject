@@ -23,7 +23,7 @@ def build_model(num_classes: int) -> nn.Module:
 
 class CarClassifier:
     def __init__(self, weights_path: str | Path, names_path: str | Path, device: str | None = None):
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device or ("cuda" if torch.cuda.is_available() and torch.cuda.device_count() else "cpu")
         self.class_names: list[str] = json.loads(Path(names_path).read_text(encoding="utf-8"))
         self.model = build_model(len(self.class_names))
         state = torch.load(weights_path, map_location="cpu", weights_only=True)

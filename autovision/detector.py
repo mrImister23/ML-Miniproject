@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 import numpy as np
+import torch
 from ultralytics import YOLO
 
 # COCO class ids used by the pretrained YOLOv8 weights
@@ -20,7 +21,8 @@ class Detection:
 class VehicleDetector:
     def __init__(self, weights: str = "yolov8n.pt", device: str | None = None):
         self.weights = weights
-        self.device = device
+        # Pick explicitly: no GPU on e.g. Streamlit Community Cloud
+        self.device = device or ("cuda" if torch.cuda.is_available() and torch.cuda.device_count() else "cpu")
         self.model = YOLO(weights)
 
     def reset(self):
@@ -36,7 +38,7 @@ class VehicleDetector:
             classes=list(VEHICLE_CLASSES),
             tracker="bytetrack.yaml",
             device=self.device,
-            quantize=16 if self.device != "cpu" else None,  # fp16 on GPU
+            quantize=16 if self.device != "cpu" else None,  # fp16 on GPU only
             verbose=False,
         )[0]
 
